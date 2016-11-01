@@ -1,0 +1,47 @@
+FROM phusion/baseimage:0.9.19 
+MAINTAINER TheBig <aukkwat@gmail.com>
+
+ENV DEBIAN_FRONTEND noninteractive
+ENV LETSENCRYPT_HOME /etc/letsencrypt
+ENV DOMAINS ""
+ENV WEBMASTER_MAIL ""
+
+# Manually set the apache environment variables in order to get apache to work immediately.
+RUN locale-gen en_US.UTF-8
+RUN echo $WEBMASTER_MAIL > /etc/container_environment/WEBMASTER_MAIL && \
+    echo $DOMAINS > /etc/container_environment/DOMAINS && \
+    echo $LETSENCRYPT_HOME > /etc/container_environment/LETSENCRYPT_HOME
+
+CMD ["/sbin/my_init"]
+
+# Base setup
+# ADD resources/etc/apt/ /etc/apt/
+RUN apt-get -y update && \
+    apt-get install -q -y curl apache2 php7.0 php7.0-cli php7.0-xml php7.0-xsl libapache2-mod-php7.0 php7.0-mysql php7.0-mcrypt php7.0-gd php7.0-curl php7.0-dev php7.0-zip php7.0-soap php7.0-pgsql php7.0-mbstring php7.0-json && \
+    apt-get install -q -y python-letsencrypt-apache && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# configure apache
+ADD config/mods-available/proxy_html.conf /etc/apache2/mods-available/
+ADD config/conf-available/security.conf /etc/apache2/conf-available/
+RUN echo "ServerName localhost" >> /etc/apache2/conf-enabled/hostname.conf && \
+    a2enmod ssl headers proxy proxy_http proxy_html xml2enc rewrite usertrack && \
+    a2dissite 000-default default-ssl && \
+    mkdir -p /var/lock/apache2 && \
+    mkdir -p /var/run/apache2
+
+# configure runit
+RUN mkdir /etc/service/apache
+ADD config/scripts/run_apache.sh /etc/service/apache/run
+ADD config/scripts/init_letsencrypt.sh /etc/my_init.d/
+ADD config/scripts/run_letsencrypt.sh /run_letsencrypt.sh
+RUN chmod +x /*.sh && chmod +x /etc/my_init.d/*.sh && chmod +x /etc/service/apache/*
+
+ADD config/crontab /etc/crontab
+
+# Stuff
+EXPOSE 80
+EXPOSE 443
+VOLUME [ "$LETSENCRYPT_HOME", "/etc/apache2/sites-available", "/var/log/apache2" ]
